@@ -1,0 +1,899 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RGB 子像素模拟器</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0c0e12;
+    --panel: #151922;
+    --panel2: #1c2230;
+    --line: #2a3342;
+    --text: #ecf2ff;
+    --muted: #9ba8bc;
+    --accent: #72a7ff;
+    --accent2: #8bffcf;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(circle at top, #161c28 0, var(--bg) 48rem);
+    color: var(--text);
+    font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      "Microsoft YaHei", sans-serif;
+  }
+  header { padding: 22px 24px 8px; max-width: 1500px; margin: auto; }
+  h1 { margin: 0 0 6px; font-size: 22px; }
+  header p { margin: 0; color: var(--muted); }
+  main {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: 16px 24px 28px;
+    display: grid;
+    grid-template-columns: 330px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .panel {
+    background: color-mix(in srgb, var(--panel) 94%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    box-shadow: 0 16px 40px #0005;
+  }
+  .controls { display: flex; flex-direction: column; gap: 13px; max-height: calc(100vh - 125px); overflow: auto; scrollbar-width: thin; }
+  .group { border-top: 1px solid var(--line); padding-top: 12px; }
+  .group:first-child { border-top: 0; padding-top: 0; }
+  .group-title { color: var(--accent2); font-weight: 700; margin-bottom: 8px; }
+  label { display: block; color: var(--muted); margin: 8px 0 4px; }
+  input, select, textarea, button {
+    width: 100%;
+    color: var(--text);
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 9px;
+    font: inherit;
+  }
+  textarea { resize: vertical; min-height: 74px; }
+  input[type="range"] { padding: 0; accent-color: var(--accent); }
+  input[type="file"] { padding: 7px; }
+  button { cursor: pointer; transition: background .15s, border-color .15s; }
+  button:hover { background: #273147; border-color: #4a6385; }
+  button.primary { background: #24549e; border-color: #4e8be4; }
+  button.primary:hover { background: #306bc0; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .value { float: right; color: var(--text); font-variant-numeric: tabular-nums; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 5px; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; }
+  .tabs button.active { background: #283c60; border-color: #5688d0; }
+  .media-info { color: var(--muted); font-size: 12px; min-height: 18px; word-break: break-all; }
+  .stage-panel { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+  .stage {
+    position: relative;
+    min-height: 470px;
+    display: grid;
+    place-items: center;
+    overflow: auto;
+    background:
+      linear-gradient(45deg, #11151d 25%, transparent 25%) 0 0/20px 20px,
+      linear-gradient(-45deg, #11151d 25%, transparent 25%) 0 0/20px 20px,
+      linear-gradient(45deg, transparent 75%, #11151d 75%) 0 0/20px 20px,
+      linear-gradient(-45deg, transparent 75%, #11151d 75%) 0 0/20px 20px,
+      #0b0d12;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  canvas#view {
+    max-width: 100%;
+    max-height: 72vh;
+    width: auto;
+    height: auto;
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    background: #000;
+  }
+  .stage-empty { color: var(--muted); text-align: center; padding: 60px 15px; }
+  .statusbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .statusbar strong { color: var(--text); }
+  .legend { display: inline-flex; gap: 8px; align-items: center; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .r { background: #f33; } .g { background: #3f6; } .b { background: #48f; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .recording { color: #ff8c8c; }
+  .effect-detail { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .effect-detail summary { cursor: pointer; color: var(--accent2); font-weight: 600; }
+  .effect-detail[open] summary { margin-bottom: 8px; }
+  .preset-note { padding: 8px 10px; background: #202a3b; border-radius: 8px; }
+  .control-disabled { opacity: .45; }
+  canvas#view.optical { image-rendering: auto; }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+    .stage { min-height: 320px; }
+    .controls { max-height: none; }
+    .stage-panel { order: -1; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>RGB 子像素模拟器</h1>
+  <p>文字、图片与视频 → 黑白块面 · 彩色边缘 · 暖白辉光。可调节 RGB 子像素效果，导出 PNG / WebM。</p>
+</header>
+
+<main>
+  <section class="panel controls">
+    <div class="group">
+      <div class="group-title">输入</div>
+      <div class="tabs">
+        <button id="textTab" class="active">文字</button>
+        <button id="mediaTab">图片 / 视频</button>
+      </div>
+      <div id="textControls">
+        <label for="textInput">文字内容</label>
+        <textarea id="textInput">亚像素
+SUBPIXEL</textarea>
+        <div class="row">
+          <div>
+            <label for="fontSelect">字体</label>
+            <select id="fontSelect">
+              <option value="Arial, sans-serif">Arial</option>
+              <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+              <option value="'Segoe UI', sans-serif">Segoe UI</option>
+              <option value="monospace">等宽字体</option>
+              <option value="serif">衬线字体</option>
+            </select>
+          </div>
+          <div>
+            <label for="fontSize">字号 <span id="fontSizeValue" class="value">42</span></label>
+            <input id="fontSize" type="range" min="8" max="120" value="42">
+          </div>
+        </div>
+        <label for="textAnim">文字动画</label>
+        <select id="textAnim">
+          <option value="static">静态</option>
+          <option value="marquee">横向滚动</option>
+          <option value="pulse">呼吸亮度</option>
+          <option value="pages">逐行 PV（每行一个镜头）</option>
+        </select>
+        <label for="sceneSeconds">每行停留（秒）</label>
+        <input id="sceneSeconds" type="number" min="0.5" max="30" step="0.5" value="2">
+        <label for="speed">滚动速度 <span id="speedValue" class="value">80</span></label>
+        <input id="speed" type="range" min="10" max="300" value="80">
+      </div>
+      <div id="mediaControls" hidden>
+        <label for="fileInput">选择图片或视频</label>
+        <input id="fileInput" type="file" accept="image/*,video/*">
+        <div id="mediaInfo" class="media-info">尚未选择文件</div>
+        <label for="mediaFit">画面适配</label>
+        <select id="mediaFit"><option value="contain">完整显示</option><option value="cover">填满并裁切</option></select>
+        <div id="videoControls" hidden>
+          <label for="seek">视频进度 <span id="videoTime" class="value">0:00 / 0:00</span></label>
+          <input id="seek" type="range" min="0" max="1" step="0.01" value="0">
+          <button id="playPause">暂停视频</button>
+        </div>
+        <div class="hint">视频导出只包含画面，不包含原视频音频。</div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-title">效果风格</div>
+      <label for="stylePreset">预设</label>
+      <select id="stylePreset">
+        <option value="reference" selected>参考风格 · 暖白彩边（推荐）</option>
+        <option value="crisp">清晰彩边 · 无柔焦</option>
+        <option value="original">原版 · 纯 RGB 条带</option>
+        <option value="custom" disabled>自定义参数</option>
+      </select>
+      <div class="hint preset-note">彩色集中在黑白交界；完整亮区通过三色混光形成暖白。参考风格预设使用 96 × 54 的较粗网格。</div>
+      <label><input id="retroEnabled" type="checkbox" checked style="width:auto; vertical-align:middle; margin-right:6px;">启用黑白彩边与镜头效果</label>
+      <div id="retroControls">
+        <details class="effect-detail" open>
+          <summary>黑白块面与彩色边缘</summary>
+          <label for="threshold">黑白阈值 <span id="thresholdValue" class="value">48%</span></label>
+          <input id="threshold" type="range" min="5" max="95" value="48">
+          <label for="binaryAmount">二值化程度 <span id="binaryAmountValue" class="value">100%</span></label>
+          <input id="binaryAmount" type="range" min="0" max="100" value="100">
+          <label for="edgeWidth">彩色边缘宽度 <span id="edgeWidthValue" class="value">1.5 像素</span></label>
+          <input id="edgeWidth" type="range" min="0" max="4" step="0.1" value="1.5">
+          <label for="edgeStrength">彩色边缘强度 <span id="edgeStrengthValue" class="value">130%</span></label>
+          <input id="edgeStrength" type="range" min="0" max="200" value="130">
+          <div class="hint">阈值越高，黑区越多。增加彩边宽度会让轮廓附近出现更多彩色像素；宽度或强度设为 0 可关闭彩边。</div>
+        </details>
+        <details class="effect-detail" open>
+          <summary>暖白与屏幕拍摄质感</summary>
+          <label for="whiteMix">白区三色混光 <span id="whiteMixValue" class="value">82%</span></label>
+          <input id="whiteMix" type="range" min="0" max="100" value="82">
+          <label for="whiteLevel">白色亮度 <span id="whiteLevelValue" class="value">88%</span></label>
+          <input id="whiteLevel" type="range" min="35" max="100" value="88">
+          <label for="warmth">暖黄程度 <span id="warmthValue" class="value">42%</span></label>
+          <input id="warmth" type="range" min="0" max="100" value="42">
+          <label for="softness">像素柔焦 <span id="softnessValue" class="value">32%</span></label>
+          <input id="softness" type="range" min="0" max="100" value="32">
+          <label for="bloom">辉光强度 <span id="bloomValue" class="value">45%</span></label>
+          <input id="bloom" type="range" min="0" max="100" value="45">
+          <div class="hint">柔焦使像素边缘变软，辉光增加周围光晕。发光点保持 RGB / BGR 顺序；镜头混光会让最终颜色相互渗透。导出包含这些效果。</div>
+        </details>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="group-title">子像素输出</div>
+      <label for="outputMode">显示模式</label>
+      <select id="outputMode">
+        <option value="bars">可见 RGB 子像素（推荐）</option>
+        <option value="packed">紧凑子像素（每 3 个采样合成一个像素）</option>
+      </select>
+      <label for="order">排列方向</label>
+      <select id="order">
+        <option value="RGB">RGB：左 R → G → B</option>
+        <option value="BGR">BGR：左 B → G → R</option>
+      </select>
+      <div class="row3">
+        <div>
+          <label for="cols">逻辑宽度</label>
+          <input id="cols" type="number" min="16" max="320" step="1" value="96">
+        </div>
+        <div>
+          <label for="rows">逻辑高度</label>
+          <input id="rows" type="number" min="8" max="180" step="1" value="54">
+        </div>
+        <div>
+          <label for="zoom">放大</label>
+          <select id="zoom">
+            <option value="1">1×</option>
+            <option value="2">2×</option>
+            <option value="3">3×</option>
+            <option value="4" selected>4×</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint">条带模式：每组三条组成正方形像素，宽高均为逻辑尺寸 × 3 × 放大倍数。输入始终先转为灰度。</div>
+      <label for="sampling">亮度采样</label>
+      <select id="sampling"><option value="subpixel">子像素独立采样（边缘有彩色细节）</option><option value="pixel">整像素采样（每组 RGB 亮度一致）</option></select>
+      <label><input id="gaps" type="checkbox" checked style="width:auto; vertical-align:middle; margin-right:6px;">模拟面板黑色间隙</label>
+    </div>
+
+    <div class="group">
+      <div class="group-title">画面调整</div>
+      <label for="brightness">亮度 <span id="brightnessValue" class="value">0</span></label>
+      <input id="brightness" type="range" min="-100" max="100" value="0">
+      <label for="contrast">对比度 <span id="contrastValue" class="value">100%</span></label>
+      <input id="contrast" type="range" min="0" max="250" value="100">
+      <label><input id="invert" type="checkbox" style="width:auto; vertical-align:middle; margin-right:6px;">反色</label>
+    </div>
+
+    <div class="group">
+      <div class="group-title">导出</div>
+      <div class="actions">
+        <button id="savePng" class="primary">保存 PNG</button>
+        <button id="recordBtn">录制 WebM</button>
+      </div>
+      <label for="recordSeconds">录制时长（秒） <span id="recordSecondsValue" class="value">6</span></label>
+      <input id="recordSeconds" type="range" min="1" max="60" value="6">
+      <label for="fps">录制帧率</label>
+      <select id="fps">
+        <option value="24">24 fps</option>
+        <option value="30" selected>30 fps</option>
+        <option value="60">60 fps</option>
+      </select>
+      <div id="recordStatus" class="hint">PNG 为当前画面；WebM 会录制文字动画或视频帧。</div>
+      <div class="hint">PNG 保存当前滤镜的完整结果；WebM 有损压缩可能改变细色带。建议放大 2×～4× 后录制。文件仅在本地处理。</div>
+    </div>
+  </section>
+
+  <section class="stage-panel">
+    <div class="panel stage">
+      <canvas id="view" width="1920" height="720"></canvas>
+      <div id="empty" class="stage-empty" hidden>选择输入后，画面会显示在这里。</div>
+    </div>
+    <div class="panel statusbar">
+      <span id="resolution">输出：—</span>
+      <span class="legend">
+        <span><i class="dot r"></i>R</span>
+        <span><i class="dot g"></i>G</span>
+        <span><i class="dot b"></i>B</span>
+      </span>
+      <span id="sourceStatus">输入：文字</span>
+    </div>
+  </section>
+</main>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const view = $('view');
+  const viewCtx = view.getContext('2d', { alpha: false });
+  const sample = document.createElement('canvas');
+  const sampleCtx = sample.getContext('2d', { willReadFrequently: true, alpha: false });
+  const base = document.createElement('canvas');
+  const baseCtx = base.getContext('2d', { alpha: false });
+  const optical = document.createElement('canvas');
+  const opticalCtx = optical.getContext('2d', { alpha: false });
+  const halo = document.createElement('canvas');
+  const haloCtx = halo.getContext('2d', { alpha: false });
+  const filterIds = ['threshold', 'binaryAmount', 'edgeWidth', 'edgeStrength',
+    'whiteMix', 'whiteLevel', 'warmth', 'softness', 'bloom'];
+  const presets = {
+    reference: { retroEnabled: true, threshold: 48, binaryAmount: 100, edgeWidth: 1.5,
+      edgeStrength: 130, whiteMix: 82, whiteLevel: 88, warmth: 42, softness: 32, bloom: 45,
+      cols: 96, rows: 54, zoom: '4', gaps: true, outputMode: 'bars', sampling: 'subpixel' },
+    crisp: { retroEnabled: true, threshold: 50, binaryAmount: 100, edgeWidth: 1.2,
+      edgeStrength: 120, whiteMix: 88, whiteLevel: 90, warmth: 18, softness: 0, bloom: 0,
+      cols: 128, rows: 72, zoom: '3', gaps: true, outputMode: 'bars', sampling: 'subpixel' },
+    original: { retroEnabled: false, cols: 160, rows: 90, zoom: '2', gaps: false,
+      outputMode: 'bars', sampling: 'subpixel' }
+  };
+  const state = {
+    source: 'text', image: null, video: null, objectUrl: null, loadId: 0,
+    recording: null, dirty: true, epoch: performance.now(), lastFrame: -Infinity,
+    output: null, fields: null
+  };
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const number = (id, fallback, lo, hi) => {
+    const value = $(id).value === '' ? fallback : Number($(id).value);
+    return clamp(Number.isFinite(value) ? value : fallback, lo, hi);
+  };
+  const download = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  };
+  const timeLabel = seconds => {
+    if (!Number.isFinite(seconds)) return '—';
+    return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
+  };
+  function readConfig() {
+    return {
+      cols: Math.round(number('cols', 160, 16, 320)),
+      rows: Math.round(number('rows', 90, 8, 180)),
+      zoom: number('zoom', 2, 1, 4), bars: $('outputMode').value === 'bars',
+      order: $('order').value, sampling: $('sampling').value,
+      brightness: number('brightness', 0, -100, 100) / 100,
+      contrast: number('contrast', 100, 0, 250) / 100,
+      invert: $('invert').checked, gaps: $('gaps').checked,
+      fontSize: number('fontSize', 42, 8, 120), font: $('fontSelect').value,
+      animation: $('textAnim').value, speed: number('speed', 80, 10, 300),
+      sceneSeconds: number('sceneSeconds', 2, 0.5, 30), fit: $('mediaFit').value,
+      retro: $('retroEnabled').checked,
+      threshold: number('threshold', 48, 5, 95) / 100,
+      binaryAmount: number('binaryAmount', 100, 0, 100) / 100,
+      edgeWidth: number('edgeWidth', 1.5, 0, 4),
+      edgeStrength: number('edgeStrength', 130, 0, 200) / 100,
+      whiteMix: number('whiteMix', 82, 0, 100) / 100,
+      whiteLevel: number('whiteLevel', 88, 35, 100) / 100,
+      warmth: number('warmth', 42, 0, 100) / 100,
+      softness: number('softness', 32, 0, 100) / 100,
+      bloom: number('bloom', 45, 0, 100) / 100
+    };
+  }
+  function resize(canvas, width, height) {
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+      return true;
+    }
+    return false;
+  }
+  function drawInput(cfg, elapsed) {
+    const samplesPerPixel = cfg.sampling === 'subpixel' ? 3 : 1;
+    resize(sample, cfg.cols * samplesPerPixel, cfg.rows);
+    sampleCtx.setTransform(1, 0, 0, 1, 0, 0);
+    sampleCtx.globalAlpha = 1;
+    sampleCtx.fillStyle = '#000';
+    sampleCtx.fillRect(0, 0, sample.width, sample.height);
+    sampleCtx.save();
+    // Scale only the horizontal coordinate system, preserving the source aspect ratio.
+    sampleCtx.scale(samplesPerPixel, 1);
+    if (state.source === 'text') {
+      let lines = $('textInput').value.split('\n');
+      if (cfg.animation === 'pages') {
+        const pages = lines.filter(line => line.trim().length);
+        const index = Math.floor(elapsed / cfg.sceneSeconds) % (pages.length || 1);
+        lines = [pages[index] || ''];
+        const phase = (elapsed % cfg.sceneSeconds) / cfg.sceneSeconds;
+        sampleCtx.globalAlpha = Math.min(1, phase / 0.12, (1 - phase) / 0.12);
+      }
+      if (cfg.animation === 'pulse') sampleCtx.globalAlpha = 0.65 + 0.35 * Math.sin(elapsed * 2);
+      let fontSize = Math.min(cfg.fontSize, cfg.rows * 0.8 / (lines.length * 1.18));
+      sampleCtx.font = `700 ${fontSize}px ${cfg.font}`;
+      let maxWidth = Math.max(0, ...lines.map(line => sampleCtx.measureText(line).width));
+      if (cfg.animation !== 'marquee' && maxWidth > cfg.cols * 0.92) {
+        fontSize *= cfg.cols * 0.92 / maxWidth;
+        sampleCtx.font = `700 ${fontSize}px ${cfg.font}`;
+        maxWidth = cfg.cols * 0.92;
+      }
+      sampleCtx.fillStyle = '#fff';
+      sampleCtx.textAlign = 'left';
+      sampleCtx.textBaseline = 'middle';
+      const lineHeight = fontSize * 1.18;
+      lines.forEach((line, i) => {
+        let x = (cfg.cols - sampleCtx.measureText(line).width) / 2;
+        if (cfg.animation === 'marquee') {
+          const period = cfg.cols + maxWidth;
+          x = cfg.cols - ((elapsed * cfg.speed + cfg.cols * 0.55) % period);
+        }
+        sampleCtx.fillText(line, x, cfg.rows / 2 + (i - (lines.length - 1) / 2) * lineHeight);
+      });
+    } else {
+      const source = state.video || state.image;
+      const width = source && (source.videoWidth || source.naturalWidth);
+      const height = source && (source.videoHeight || source.naturalHeight);
+      if (width && height && (!state.video || state.video.readyState >= 2)) {
+        const fit = cfg.fit === 'cover' ? Math.max : Math.min;
+        const scale = fit(cfg.cols / width, cfg.rows / height);
+        const w = width * scale, h = height * scale;
+        sampleCtx.imageSmoothingEnabled = true;
+        sampleCtx.imageSmoothingQuality = 'high';
+        sampleCtx.drawImage(source, (cfg.cols - w) / 2, (cfg.rows - h) / 2, w, h);
+      }
+    }
+    sampleCtx.restore();
+  }
+  function render(now) {
+    const cfg = readConfig();
+    drawInput(cfg, Math.max(0, (now - state.epoch) / 1000));
+    const width = cfg.bars ? cfg.cols * 3 : cfg.cols;
+    if (resize(base, width, cfg.rows) || !state.output) {
+      state.output = baseCtx.createImageData(width, cfg.rows);
+    }
+    const src = sampleCtx.getImageData(0, 0, sample.width, sample.height).data;
+    const dst = state.output.data;
+    const slots = cfg.order === 'RGB' ? [0, 1, 2] : [2, 1, 0];
+    dst.fill(0);
+    if (cfg.retro) renderRetro(cfg, src, dst, slots, width);
+    else {
+    for (let y = 0; y < cfg.rows; y++) {
+      for (let x = 0; x < cfg.cols * 3; x++) {
+        const sx = cfg.sampling === 'subpixel' ? x : Math.floor(x / 3);
+        const si = (y * sample.width + sx) * 4;
+        let value = (0.2126 * src[si] + 0.7152 * src[si + 1] + 0.0722 * src[si + 2]) / 255;
+        value = clamp((value - 0.5) * cfg.contrast + 0.5 + cfg.brightness, 0, 1);
+        if (cfg.invert) value = 1 - value;
+        const di = (y * width + (cfg.bars ? x : Math.floor(x / 3))) * 4;
+        dst[di + slots[x % 3]] = Math.round(value * 255);
+        dst[di + 3] = 255;
+      }
+    }
+    }
+    baseCtx.putImageData(state.output, 0, 0);
+    const scaleX = cfg.zoom;
+    const scaleY = cfg.zoom * (cfg.bars ? 3 : 1);
+    resize(view, width * scaleX, cfg.rows * scaleY);
+    const paint = cfg.retro ? opticalCtx : viewCtx;
+    if (cfg.retro) resize(optical, view.width, view.height);
+    paint.imageSmoothingEnabled = false;
+    paint.drawImage(base, 0, 0, view.width, view.height);
+    if (cfg.bars && cfg.gaps) {
+      paint.fillStyle = '#000';
+      if (cfg.zoom >= 2) {
+        const gap = cfg.retro ? cfg.zoom * 0.15 : 1;
+        for (let x = cfg.zoom - gap; x < view.width; x += cfg.zoom) paint.fillRect(x, 0, gap, view.height);
+      }
+      for (let y = scaleY - 1; y < view.height; y += scaleY) paint.fillRect(0, y, view.width, 1);
+    }
+    if (cfg.retro) applyOptics(cfg, scaleY);
+    view.classList.toggle('optical', cfg.retro);
+    $('resolution').textContent = `输出：${view.width} × ${view.height} px · ${cfg.order} · ${cfg.retro ? '暖白彩边' : cfg.bars ? '可见条带' : '紧凑像素'}`;
+    $('sourceStatus').textContent = state.source === 'text'
+      ? '输入：文字 · ' + $('textAnim').selectedOptions[0].text
+      : state.video ? '输入：视频' : state.image ? '输入：图片' : '等待导入文件';
+    state.dirty = false;
+  }
+  function renderRetro(cfg, src, dst, slots, width) {
+    const count = cfg.cols * cfg.rows, sampleCount = sample.width * sample.height;
+    if (!state.fields || state.fields.luma.length !== sampleCount || state.fields.level.length !== count) {
+      state.fields = { luma: new Float32Array(sampleCount), level: new Float32Array(count),
+        hard: new Uint8Array(count), distance: new Float32Array(count), mask: new Float32Array(sampleCount) };
+    }
+    const { luma, level, hard, distance, mask } = state.fields;
+    const sp = sample.width / cfg.cols;
+    for (let i = 0; i < sampleCount; i++) {
+      const s = i * 4;
+      let v = (0.2126 * src[s] + 0.7152 * src[s + 1] + 0.0722 * src[s + 2]) / 255;
+      v = clamp((v - 0.5) * cfg.contrast + 0.5 + cfg.brightness, 0, 1);
+      if (cfg.invert) v = 1 - v;
+      luma[i] = v;
+      mask[i] = v * (1 - cfg.binaryAmount) + (v >= cfg.threshold ? 1 : 0) * cfg.binaryAmount;
+    }
+    for (let i = 0; i < count; i++) {
+      let sum = 0;
+      for (let k = 0; k < sp; k++) sum += luma[i * sp + k];
+      const mean = sum / sp;
+      hard[i] = mean >= cfg.threshold ? 1 : 0;
+      level[i] = mean * (1 - cfg.binaryAmount) + hard[i] * cfg.binaryAmount;
+    }
+    // Distance to the binary silhouette. No color is injected into flat interiors.
+    for (let y = 0; y < cfg.rows; y++) for (let x = 0; x < cfg.cols; x++) {
+      const i = y * cfg.cols + x, h = hard[i];
+      let boundary = (x > 0 && hard[i - 1] !== h) || (x < cfg.cols - 1 && hard[i + 1] !== h)
+        || (y > 0 && hard[i - cfg.cols] !== h) || (y < cfg.rows - 1 && hard[i + cfg.cols] !== h);
+      for (let k = 0; k < sp; k++) if ((luma[i * sp + k] >= cfg.threshold ? 1 : 0) !== h) boundary = true;
+      distance[i] = boundary ? 0 : 10000;
+    }
+    for (let y = 0; y < cfg.rows; y++) for (let x = 0; x < cfg.cols; x++) {
+      const i = y * cfg.cols + x;
+      if (x) distance[i] = Math.min(distance[i], distance[i - 1] + 1);
+      if (y) distance[i] = Math.min(distance[i], distance[i - cfg.cols] + 1);
+      if (x && y) distance[i] = Math.min(distance[i], distance[i - cfg.cols - 1] + 1.4142);
+      if (x < cfg.cols - 1 && y) distance[i] = Math.min(distance[i], distance[i - cfg.cols + 1] + 1.4142);
+    }
+    for (let y = cfg.rows - 1; y >= 0; y--) for (let x = cfg.cols - 1; x >= 0; x--) {
+      const i = y * cfg.cols + x;
+      if (x < cfg.cols - 1) distance[i] = Math.min(distance[i], distance[i + 1] + 1);
+      if (y < cfg.rows - 1) distance[i] = Math.min(distance[i], distance[i + cfg.cols] + 1);
+      if (x < cfg.cols - 1 && y < cfg.rows - 1) distance[i] = Math.min(distance[i], distance[i + cfg.cols + 1] + 1.4142);
+      if (x && y < cfg.rows - 1) distance[i] = Math.min(distance[i], distance[i + cfg.cols - 1] + 1.4142);
+    }
+    const at = (x, y) => {
+      x = clamp((x + 0.5) * sp - 0.5, 0, sample.width - 1);
+      y = clamp(y, 0, cfg.rows - 1);
+      const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+      const x1 = Math.min(x0 + 1, sample.width - 1), y1 = Math.min(y0 + 1, cfg.rows - 1);
+      const a = mask[y0 * sample.width + x0] * (1 - fx) + mask[y0 * sample.width + x1] * fx;
+      const b = mask[y1 * sample.width + x0] * (1 - fx) + mask[y1 * sample.width + x1] * fx;
+      return a * (1 - fy) + b * fy;
+    };
+    const gains = [1, 1 - cfg.warmth * 0.10, 1 - cfg.warmth * 0.52];
+    const channels = new Float32Array(3);
+    const offsetsX = [-0.78, 0, 0.78], offsetsY = [0.24, -0.48, 0.24];
+    for (let y = 0; y < cfg.rows; y++) for (let x = 0; x < cfg.cols; x++) {
+      const i = y * cfg.cols + x, neutral = level[i];
+      const edge = cfg.edgeWidth > 0 ? clamp(1 - distance[i] / (cfg.edgeWidth + 0.5), 0, 1) : 0;
+      const strength = edge * cfg.edgeStrength;
+      for (let slot = 0; slot < 3; slot++) {
+        const channel = slots[slot];
+        const displaced = strength ? at(x + offsetsX[slot] * cfg.edgeWidth, y + offsetsY[slot] * cfg.edgeWidth) : neutral;
+        channels[channel] = clamp(neutral + (displaced - neutral) * strength, 0, 1);
+      }
+      // Shared light becomes warm white; unpaired emitters stay colorful.
+      const shared = Math.min(channels[0], channels[1], channels[2]);
+      const colorGain = cfg.whiteLevel * (1 + 0.5 * Math.min(strength, 1));
+      const warmLight = c => shared * cfg.whiteLevel * gains[c];
+      if (cfg.bars) {
+        for (let slot = 0; slot < 3; slot++) {
+          const channel = slots[slot], di = (y * width + x * 3 + slot) * 4;
+          for (let c = 0; c < 3; c++) {
+            // Pairwise spill creates yellow/cyan/magenta at the silhouette,
+            // while isolated R/G/B emitters retain their own primary color.
+            const overlap = Math.min(channels[channel], channels[c]);
+            const light = warmLight(c) + Math.max(0, overlap - shared) * colorGain;
+            dst[di + c] = Math.round(255 * clamp(light * (c === channel ? 1 : cfg.whiteMix), 0, 1));
+          }
+          dst[di + 3] = 255;
+        }
+      } else {
+        const di = (y * width + x) * 4;
+        for (let c = 0; c < 3; c++) dst[di + c] = Math.round(255 * clamp(warmLight(c) + (channels[c] - shared) * colorGain, 0, 1));
+        dst[di + 3] = 255;
+      }
+    }
+  }
+  function applyOptics(cfg, pixelSize) {
+    viewCtx.save();
+    viewCtx.fillStyle = '#000';
+    viewCtx.fillRect(0, 0, view.width, view.height);
+    // Scale the optical radii with logical pixel size, keeping exports consistent.
+    const blurRadius = cfg.softness * pixelSize * 0.24;
+    viewCtx.filter = blurRadius ? `blur(${blurRadius}px)` : 'none';
+    viewCtx.drawImage(optical, 0, 0);
+    if (cfg.bloom > 0) {
+      // Low-resolution glow is faster than filtering a full export-sized buffer.
+      const ratio = Math.min(1, 640 / view.width);
+      resize(halo, Math.round(view.width * ratio), Math.round(view.height * ratio));
+      haloCtx.imageSmoothingEnabled = true;
+      haloCtx.drawImage(optical, 0, 0, halo.width, halo.height);
+      viewCtx.filter = `blur(${pixelSize * (0.30 + cfg.bloom * 0.30)}px)`;
+      viewCtx.globalCompositeOperation = 'lighter';
+      viewCtx.globalAlpha = cfg.bloom * 0.85;
+      viewCtx.imageSmoothingEnabled = true;
+      viewCtx.drawImage(halo, 0, 0, view.width, view.height);
+    }
+    viewCtx.restore();
+  }
+  function frame(now) {
+    const animated = state.source === 'text'
+      ? $('textAnim').value !== 'static'
+      : state.video && !state.video.paused;
+    const fps = state.recording ? number('fps', 30, 24, 60) : 30;
+    if ((state.dirty || animated || state.recording) && now - state.lastFrame >= 1000 / fps - 1) {
+      render(now);
+      state.lastFrame = now;
+    }
+    if (state.video) {
+      $('seek').value = state.video.currentTime;
+      $('videoTime').textContent = timeLabel(state.video.currentTime) + ' / ' + timeLabel(state.video.duration);
+    }
+    requestAnimationFrame(frame);
+  }
+  function setSource(source) {
+    state.source = source;
+    state.epoch = performance.now();
+    $('textTab').classList.toggle('active', source === 'text');
+    $('mediaTab').classList.toggle('active', source === 'media');
+    $('textControls').hidden = source !== 'text';
+    $('mediaControls').hidden = source !== 'media';
+    if (source === 'text' && state.video) state.video.pause();
+    state.dirty = true;
+  }
+  $('textTab').addEventListener('click', () => setSource('text'));
+  $('mediaTab').addEventListener('click', () => setSource('media'));
+  function releaseMedia() {
+    if (state.video) {
+      state.video.pause();
+      state.video.removeAttribute('src');
+      state.video.load();
+    }
+    state.video = null;
+    state.image = null;
+    if (state.objectUrl) URL.revokeObjectURL(state.objectUrl);
+    state.objectUrl = null;
+  }
+  $('fileInput').addEventListener('change', () => {
+    const file = $('fileInput').files[0];
+    if (!file) return;
+    const loadId = ++state.loadId;
+    releaseMedia();
+    $('videoControls').hidden = true;
+    setSource('media');
+    if (!file.type.startsWith('video/') && !file.type.startsWith('image/')) {
+      $('mediaInfo').textContent = '请选择浏览器支持的图片或视频文件。';
+      return;
+    }
+    const url = state.objectUrl = URL.createObjectURL(file);
+    $('mediaInfo').textContent = file.name + ' · 正在读取…';
+    const loaded = () => {
+      if (state.loadId !== loadId) return false;
+      $('mediaInfo').textContent = file.name;
+      state.dirty = true;
+      return true;
+    };
+    const failed = () => {
+      if (state.loadId !== loadId) return;
+      $('mediaInfo').textContent = '无法读取该文件，请尝试 PNG、JPEG、MP4（H.264）或 WebM。';
+      state.dirty = true;
+    };
+    if (file.type.startsWith('video/')) {
+      const video = document.createElement('video');
+      state.video = video;
+      video.muted = true;
+      video.loop = true;
+      video.playsInline = true;
+      video.preload = 'auto';
+      video.addEventListener('loadeddata', () => {
+        if (!loaded()) return;
+        $('videoControls').hidden = false;
+        $('seek').max = Number.isFinite(video.duration) ? video.duration : 1;
+        if (state.source === 'media') video.play().catch(() => { $('playPause').textContent = '播放视频'; });
+      }, { once: true });
+      video.addEventListener('seeked', () => { state.dirty = true; });
+      video.addEventListener('play', () => { if (loadId === state.loadId) $('playPause').textContent = '暂停视频'; });
+      video.addEventListener('pause', () => { if (loadId === state.loadId) $('playPause').textContent = '播放视频'; });
+      video.addEventListener('error', failed, { once: true });
+      video.src = url;
+    } else {
+      const image = new Image();
+      image.onload = () => { if (loaded()) state.image = image; };
+      image.onerror = failed;
+      image.src = url;
+    }
+  });
+  $('playPause').addEventListener('click', () => {
+    if (!state.video) return;
+    if (state.video.paused) state.video.play().catch(() => { $('mediaInfo').textContent = '播放失败，请尝试其他视频格式。'; });
+    else state.video.pause();
+  });
+  $('seek').addEventListener('input', () => {
+    if (state.video && Number.isFinite(state.video.duration)) state.video.currentTime = Number($('seek').value);
+  });
+  function updateLabels() {
+    for (const id of ['fontSize', 'speed', 'brightness', 'recordSeconds']) $(id + 'Value').textContent = $(id).value;
+    $('contrastValue').textContent = $('contrast').value + '%';
+    for (const id of filterIds) $(id + 'Value').textContent = $(id).value + (id === 'edgeWidth' ? ' 像素' : '%');
+    $('retroControls').classList.toggle('control-disabled', !$('retroEnabled').checked);
+    state.dirty = true;
+  }
+  const customIds = new Set([...filterIds, 'retroEnabled', 'cols', 'rows', 'zoom', 'gaps', 'outputMode', 'sampling']);
+  document.querySelectorAll('input, select, textarea').forEach(control => {
+    control.addEventListener('input', updateLabels);
+    control.addEventListener('change', updateLabels);
+    if (customIds.has(control.id)) control.addEventListener('input', () => { $('stylePreset').value = 'custom'; });
+  });
+  $('stylePreset').addEventListener('change', () => {
+    const preset = presets[$('stylePreset').value];
+    if (!preset) return;
+    for (const [id, value] of Object.entries(preset)) {
+      if (typeof value === 'boolean') $(id).checked = value;
+      else $(id).value = value;
+    }
+    updateLabels();
+  });
+  for (const id of ['textAnim', 'textInput']) $(id).addEventListener('input', () => { state.epoch = performance.now(); });
+  $('savePng').addEventListener('click', () => {
+    render(performance.now());
+    view.toBlob(blob => { if (blob) download(blob, 'subpixel-' + Date.now() + '.png'); }, 'image/png');
+  });
+  function lockControls(locked) {
+    document.querySelectorAll('.controls input, .controls select, .controls textarea, .controls button').forEach(control => {
+      if (control.id !== 'recordBtn') control.disabled = locked;
+    });
+    $('recordBtn').textContent = locked ? '停止录制' : '录制 WebM';
+    $('recordBtn').classList.toggle('primary', locked);
+  }
+  async function addWebmDuration(blob, milliseconds) {
+    // Chromium emits an unindexed live WebM with no Duration. Add that metadata
+    // so the downloaded file has a usable timeline when opened again.
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    function vint(offset, isId) {
+      if (offset >= bytes.length) return null;
+      let length = 1, marker = 128;
+      while (length <= 8 && !(bytes[offset] & marker)) { length++; marker >>= 1; }
+      if (length > 8 || offset + length > bytes.length) return null;
+      let value = isId ? bytes[offset] : bytes[offset] & (marker - 1);
+      let unknown = !isId && value === marker - 1;
+      for (let i = 1; i < length; i++) {
+        value = value * 256 + bytes[offset + i];
+        unknown = unknown && bytes[offset + i] === 255;
+      }
+      return { length, value, unknown };
+    }
+    function element(offset) {
+      const id = vint(offset, true);
+      const size = id && vint(offset + id.length, false);
+      if (!size) return null;
+      const start = offset + id.length + size.length;
+      return { id: id.value, offset, sizeOffset: offset + id.length, size, start,
+        end: size.unknown ? bytes.length : start + size.value };
+    }
+    let segment;
+    for (let offset = 0; offset < bytes.length;) {
+      const el = element(offset);
+      if (!el || el.end <= offset || el.end > bytes.length) return blob;
+      if (el.id === 0x18538067) { segment = el; break; }
+      offset = el.end;
+    }
+    if (!segment || !segment.size.unknown) return blob;
+    let info;
+    for (let offset = segment.start; offset < segment.end;) {
+      const el = element(offset);
+      if (!el || el.end <= offset || el.end > bytes.length) return blob;
+      // Do not shift existing index offsets in WebM produced by another encoder.
+      if (el.id === 0x114d9b74 || el.id === 0x1c53bb6b) return blob;
+      if (el.id === 0x1549a966) info = el;
+      offset = el.end;
+    }
+    if (!info || info.size.unknown) return blob;
+    let scale = 1000000;
+    for (let offset = info.start; offset < info.end;) {
+      const el = element(offset);
+      if (!el || el.end <= offset || el.end > info.end) return blob;
+      if (el.id === 0x4489) return blob;
+      if (el.id === 0x2ad7b1) {
+        scale = 0;
+        for (let i = el.start; i < el.end; i++) scale = scale * 256 + bytes[i];
+      }
+      offset = el.end;
+    }
+    const newSize = info.size.value + 11;
+    if (newSize >= 2 ** (7 * info.size.length) - 1 || !scale) return blob;
+    let encodedSize = newSize;
+    for (let i = info.size.length - 1; i >= 0; i--) {
+      bytes[info.sizeOffset + i] = encodedSize % 256;
+      encodedSize = Math.floor(encodedSize / 256);
+    }
+    bytes[info.sizeOffset] |= 1 << (8 - info.size.length);
+    const duration = new Uint8Array(11);
+    duration.set([0x44, 0x89, 0x88]);
+    new DataView(duration.buffer).setFloat64(3, milliseconds * 1000000 / scale);
+    return new Blob([bytes.subarray(0, info.end), duration, bytes.subarray(info.end)], { type: blob.type });
+  }
+  $('recordBtn').addEventListener('click', () => {
+    if (state.recording) {
+      if (state.recording.state === 'recording') state.recording.stop();
+      return;
+    }
+    if (!view.captureStream || !window.MediaRecorder) {
+      $('recordStatus').textContent = '浏览器不支持录制，请使用最新版 Chrome / Edge / Firefox。';
+      return;
+    }
+    if (state.source === 'media' && !state.image && (!state.video || state.video.readyState < 2)) {
+      $('recordStatus').textContent = '请先导入一个可播放的文件。';
+      return;
+    }
+    const mime = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t));
+    if (!mime) {
+      $('recordStatus').textContent = '当前浏览器不支持 WebM 编码，请用 Chrome、Edge 或 Firefox。';
+      return;
+    }
+    const seconds = number('recordSeconds', 6, 1, 60);
+    const fps = number('fps', 30, 24, 60);
+    state.epoch = performance.now();
+    render(state.epoch);
+    let stream;
+    try {
+      stream = view.captureStream(fps);
+      const recorder = new MediaRecorder(stream, {
+        mimeType: mime,
+        videoBitsPerSecond: clamp(view.width * view.height * fps, 8000000, 60000000)
+      });
+      const chunks = [];
+      let timer, progress, started, failed = false, restored = false;
+      const videoWasPaused = state.video && state.video.paused;
+      const finish = () => {
+        if (restored) return;
+        restored = true;
+        clearTimeout(timer);
+        clearInterval(progress);
+        stream.getTracks().forEach(track => track.stop());
+        if (videoWasPaused && state.video) state.video.pause();
+        state.recording = null;
+        lockControls(false);
+      };
+      recorder.ondataavailable = event => { if (event.data.size) chunks.push(event.data); };
+      recorder.onerror = () => {
+        failed = true;
+        if (recorder.state !== 'inactive') recorder.stop();
+        finish();
+        $('recordStatus').textContent = '编码失败，请降低逻辑尺寸或放大倍数后重试。';
+      };
+      recorder.onstop = async () => {
+        const elapsed = performance.now() - started;
+        finish();
+        if (failed) return;
+        let blob = new Blob(chunks, { type: recorder.mimeType || mime });
+        if (blob.size) {
+          try { blob = await addWebmDuration(blob, elapsed); } catch { /* Preserve usable original video. */ }
+          download(blob, 'subpixel-' + Date.now() + '.webm');
+          $('recordStatus').textContent = '录制完成，WebM 已下载（仅画面）。';
+        } else $('recordStatus').textContent = '未录到画面，请重试。';
+      };
+      recorder.start(250);
+      state.recording = recorder;
+      lockControls(true);
+      if (state.source === 'media' && state.video) state.video.play().catch(() => {});
+      started = performance.now();
+      const showProgress = () => {
+        $('recordStatus').textContent = '● 正在录制 ' + ((performance.now() - started) / 1000).toFixed(1) + ' / ' + seconds + ' 秒，请保持本页可见。';
+      };
+      showProgress();
+      progress = setInterval(showProgress, 200);
+      timer = setTimeout(() => { if (recorder.state === 'recording') recorder.stop(); }, seconds * 1000);
+    } catch (error) {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      state.recording = null;
+      lockControls(false);
+      $('recordStatus').textContent = '无法开始录制：' + error.message;
+    }
+  });
+  window.addEventListener('pagehide', () => {
+    if (state.recording && state.recording.state === 'recording') state.recording.stop();
+    releaseMedia();
+  });
+  updateLabels();
+  setSource('text');
+  render(performance.now());
+  requestAnimationFrame(frame);
+})();
+
+</script>
+</body>
+</html>
+
